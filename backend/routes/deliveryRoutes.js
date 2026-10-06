@@ -3,13 +3,15 @@ const multer = require('multer');
 
 const {
   registerDeliveryAgent,
+  getDeliveryProfilePhoto,
 } = require('../controllers/deliveryController');
 
 const router = express.Router();
 
-// Store uploaded image in memory.
-// The controller will save req.file.buffer
-// directly into MySQL LONGBLOB.
+// ============================================================
+// MULTER CONFIGURATION
+// ============================================================
+
 const upload = multer({
   storage: multer.memoryStorage(),
 
@@ -17,7 +19,11 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5 MB
   },
 
-  fileFilter: (req, file, cb) => {
+  fileFilter: (
+    req,
+    file,
+    cb
+  ) => {
     if (
       file.mimetype === 'image/jpeg' ||
       file.mimetype === 'image/png' ||
@@ -34,10 +40,23 @@ const upload = multer({
   },
 });
 
+// ============================================================
+// DELIVERY REGISTRATION
+// ============================================================
+
 router.post(
   '/register',
   upload.single('profilePhoto'),
   registerDeliveryAgent
+);
+
+// ============================================================
+// DELIVERY PROFILE PHOTO
+// ============================================================
+
+router.get(
+  '/profile-photo/:userId',
+  getDeliveryProfilePhoto
 );
 
 module.exports = router;

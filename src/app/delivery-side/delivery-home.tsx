@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
   Bell,
@@ -262,6 +262,52 @@ const OnlineToggle = memo(
         }).start();
       }, [scale]);
 
+    const dotPulse = useRef(
+      new Animated.Value(1)
+    ).current;
+
+    /* Gentle pulse on the status dot while online. */
+    useEffect(() => {
+      if (!isOnline) {
+        dotPulse.setValue(1);
+        return;
+      }
+
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(
+            dotPulse,
+            {
+              toValue: 1.3,
+              duration: 720,
+              easing:
+                Easing.out(
+                  Easing.quad
+                ),
+              useNativeDriver: true,
+            }
+          ),
+
+          Animated.timing(
+            dotPulse,
+            {
+              toValue: 1,
+              duration: 720,
+              easing:
+                Easing.inOut(
+                  Easing.quad
+                ),
+              useNativeDriver: true,
+            }
+          ),
+        ])
+      );
+
+      pulse.start();
+
+      return () => pulse.stop();
+    }, [isOnline, dotPulse]);
+
     const translateX =
       knobPosition.interpolate({
         inputRange: [0, 1],
@@ -291,14 +337,24 @@ const OnlineToggle = memo(
           <View
             style={styles.toggleLabelRow}
           >
-            <View
-              style={[
-                styles.statusDot,
-                isOnline
-                  ? styles.statusDotOnline
-                  : styles.statusDotOffline,
-              ]}
-            />
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    scale: dotPulse,
+                  },
+                ],
+              }}
+            >
+              <View
+                style={[
+                  styles.statusDot,
+                  isOnline
+                    ? styles.statusDotOnline
+                    : styles.statusDotOffline,
+                ]}
+              />
+            </Animated.View>
 
             <Text
               style={[
@@ -391,6 +447,44 @@ const EarningsCard = memo(
     trips: number;
     onDetails: () => void;
   }) {
+    const [displayToday, setDisplayToday] =
+      useState(0);
+
+    const countValue = useRef(
+      new Animated.Value(0)
+    ).current;
+
+    /* Subtle count-up for today's earnings. */
+    useEffect(() => {
+      const animation = Animated.timing(
+        countValue,
+        {
+          toValue: today,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }
+      );
+
+      const listenerId =
+        countValue.addListener(
+          ({ value }) => {
+            setDisplayToday(
+              Math.round(value)
+            );
+          }
+        );
+
+      animation.start();
+
+      return () => {
+        countValue.removeListener(
+          listenerId
+        );
+        animation.stop();
+      };
+    }, [today, countValue]);
+
     return (
       <View style={styles.earningsCard}>
         <View
@@ -422,7 +516,7 @@ const EarningsCard = memo(
                 styles.earningsValue
               }
             >
-              {inr(today)}
+              {inr(displayToday)}
             </Text>
           </View>
 
@@ -831,104 +925,125 @@ export default function DeliveryHome() {
       trips: 0,
     });
 
+  const [unreadCount, setUnreadCount] =
+    useState(0);
+
   /* ==========================================================
      LOAD USER + EARNINGS
      ========================================================== */
 
-  useEffect(() => {
-    let mounted = true;
-
-    const loadUser = async () => {
-      try {
-        const stored =
-          await AsyncStorage.getItem(
-            'medbuy_user'
-          );
-
-        if (stored) {
-          const user =
-            JSON.parse(stored);
-
-          if (
-            mounted &&
-            user?.name
-          ) {
-            setName(
-              String(user.name)
-            );
-          }
-        }
-
-        const storedOnline =
-          await AsyncStorage.getItem(
-            'medbuy_delivery_online'
-          );
-
-        if (
-          mounted &&
-          storedOnline !== null
-        ) {
-          setIsOnline(
-            storedOnline ===
-            'true'
-          );
-        }
-
-        const storedEarnings =
-          await AsyncStorage.getItem(
-            'medbuy_delivery_earnings'
-          );
-
-        if (
-          mounted &&
-          storedEarnings
-        ) {
-          try {
-            const parsed =
-              JSON.parse(
-                storedEarnings
-              );
-
-            setEarnings({
-              today:
-                Number(
-                  parsed.today
-                ) || 0,
-              week:
-                Number(
-                  parsed.week
-                ) || 0,
-              month:
-                Number(
-                  parsed.month
-                ) || 0,
-              trips:
-                Number(
-                  parsed.trips
-                ) || 0,
-            });
-          } catch {
-            // Keep zeroed earnings on a bad payload.
-          }
-        }
-      } catch (error) {
-        console.log(
-          'Unable to load delivery user:',
-          error
+  const loadData = useCallback(async () => {
+    try {
+      const stored =
+        await AsyncStorage.getItem(
+          'medbuy_user'
         );
-      } finally {
-        if (mounted) {
-          setLoading(false);
+
+      if (stored) {
+        const user =
+          JSON.parse(stored);
+
+        if (user?.name) {
+          setName(
+            String(user.name)
+          );
         }
       }
-    };
 
-    loadUser();
+      const storedOnline =
+        await AsyncStorage.getItem(
+          'medbuy_delivery_online'
+        );
 
-    return () => {
-      mounted = false;
-    };
+      if (storedOnline !== null) {
+        setIsOnline(
+          storedOnline ===
+          'true'
+        );
+      }
+
+      const storedEarnings =
+        await AsyncStorage.getItem(
+          'medbuy_delivery_earnings'
+        );
+
+      if (storedEarnings) {
+        try {
+          const parsed =
+            JSON.parse(
+              storedEarnings
+            );
+
+          setEarnings({
+            today:
+              Number(
+                parsed.today
+              ) || 0,
+            week:
+              Number(
+                parsed.week
+              ) || 0,
+            month:
+              Number(
+                parsed.month
+              ) || 0,
+            trips:
+              Number(
+                parsed.trips
+              ) || 0,
+          });
+        } catch {
+          // Keep zeroed earnings on a bad payload.
+        }
+      }
+
+      const storedNotifications =
+        await AsyncStorage.getItem(
+          'medbuy_delivery_notifications'
+        );
+
+      if (storedNotifications) {
+        try {
+          const parsed =
+            JSON.parse(
+              storedNotifications
+            );
+
+          if (Array.isArray(parsed)) {
+            setUnreadCount(
+              parsed.filter(
+                (entry: any) =>
+                  !entry?.read
+              ).length
+            );
+          }
+        } catch {
+          // Keep the last count on a bad payload.
+        }
+      } else {
+        // Nothing stored yet: the demo set is waiting unread.
+        setUnreadCount(3);
+      }
+    } catch (error) {
+      console.log(
+        'Unable to load delivery user:',
+        error
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  /* Reload on focus so earnings/trips stay fresh after trips. */
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   /* ==========================================================
      UPDATE GREETING
@@ -1050,9 +1165,8 @@ export default function DeliveryHome() {
 
   const handleNotifications =
     useCallback(() => {
-      // Notification screen will be connected later.
-      console.log(
-        'Delivery notifications pressed'
+      router.push(
+        '/delivery-side/delivery-notifications'
       );
     }, []);
 
@@ -1065,6 +1179,13 @@ export default function DeliveryHome() {
       // Already on home.
     }, []);
 
+  const openDeliveries =
+    useCallback(() => {
+      router.replace(
+        '/delivery-side/deliveries'
+      );
+    }, []);
+
   const openHistory =
     useCallback(() => {
       router.push(
@@ -1072,9 +1193,16 @@ export default function DeliveryHome() {
       );
     }, []);
 
+  const openHistoryTab =
+    useCallback(() => {
+      router.replace(
+        '/delivery-side/delivery-history'
+      );
+    }, []);
+
   const openProfile =
     useCallback(() => {
-      router.push(
+      router.replace(
         '/delivery-side/delivery-profile'
       );
     }, []);
@@ -1141,6 +1269,12 @@ export default function DeliveryHome() {
           {
             opacity:
               screenOpacity,
+            transform: [
+              {
+                translateY:
+                  contentTranslate,
+              },
+            ],
           },
         ]}
       >
@@ -1226,6 +1360,12 @@ export default function DeliveryHome() {
                   styles.notificationPressed,
                 ]}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  unreadCount > 0
+                    ? `Notifications, ${unreadCount} unread`
+                    : 'Notifications'
+                }
               >
                 <Bell
                   size={23}
@@ -1235,11 +1375,13 @@ export default function DeliveryHome() {
                   weight="regular"
                 />
 
-                <View
-                  style={
-                    styles.notificationDot
-                  }
-                />
+                {unreadCount > 0 && (
+                  <View
+                    style={
+                      styles.notificationDot
+                    }
+                  />
+                )}
               </Pressable>
             </View>
 
@@ -1756,7 +1898,7 @@ export default function DeliveryHome() {
               />
             }
             onPress={
-              openHistory
+              openDeliveries
             }
           />
 
@@ -1772,7 +1914,7 @@ export default function DeliveryHome() {
               />
             }
             onPress={
-              openHistory
+              openHistoryTab
             }
           />
 
